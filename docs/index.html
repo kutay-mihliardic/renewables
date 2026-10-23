@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Almanya Duck Curve & Dunkelflaute</title>
 <meta name="description" content="Almanya elektrik sisteminde ördek eğrisi, negatif fiyatlar ve dunkelflaute olayları — günlük güncellenen interaktif dashboard.">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
 <style>
 :root {
   color-scheme: light;
@@ -52,6 +52,7 @@
   --ramp: #184f95,#1c5cab,#256abf,#2a78d6,#3987e5,#5598e7,#6da7ec,#86b6ef,#9ec5f4,#b7d3f6;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--bg); color: var(--text-primary);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -296,6 +297,7 @@ async function init() {
     DATA = await r.json();
   } catch (e) {
     $("error").style.display = "block";
+    document.querySelectorAll("section").forEach((el) => { el.hidden = true; });
     return;
   }
   $("updated").textContent = `Son veri: ${DATA.last_data} (Berlin).`;

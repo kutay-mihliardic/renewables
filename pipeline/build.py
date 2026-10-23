@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 from pipeline.energy_charts import TZ, fetch_month
 
@@ -28,17 +29,23 @@ def months_to_fetch(existing, today, start=START):
     return [m for m in all_months if str(m) not in existing or m in recent]
 
 
-def update_archive(today=None):
+def update_archive(today=None, pause=3):
+    """Eksik ayları çeker. API hata verirse durur ama o ana kadar inenleri korur;
+    kalan aylar bir sonraki çalıştırmada tamamlanır."""
     HOURLY_DIR.mkdir(parents=True, exist_ok=True)
     today = today or pd.Timestamp.now(tz=TZ)
     existing = {p.stem for p in HOURLY_DIR.glob("*.csv")}
     for month in months_to_fetch(existing, today.tz_localize(None)):
-        print(f"çekiliyor: {month}")
-        df = fetch_month(str(month))
-        if df.empty:
-            continue
-        df.to_csv(HOURLY_DIR / f"{month}.csv", index_label="time_utc", float_format="%.1f")
-        time.sleep(1)  # API'ye nazik davran
+        print(f"çekiliyor: {month}", flush=True)
+        try:
+            df = fetch_month(str(month))
+        except requests.RequestException as e:
+            print(f"UYARI: {month} çekilemedi, kalan aylar sonraki çalıştırmaya kaldı: {e}", flush=True)
+            return False
+        if not df.empty:
+            df.to_csv(HOURLY_DIR / f"{month}.csv", index_label="time_utc", float_format="%.1f")
+        time.sleep(pause)  # API'nin istek sınırına takılmamak için
+    return True
 
 
 def load_archive():
