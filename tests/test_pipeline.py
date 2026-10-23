@@ -71,3 +71,39 @@ def test_build_drops_partial_day_and_has_24h_profiles():
     profile = data["profiles"]["2023"]["6"]
     assert len(profile["net"]) == 24
     assert profile["net"][12] < profile["net"][0]  # öğle çukuru
+
+
+def test_rate_limit_waits_for_retry_after():
+    from pipeline.energy_charts import _wait_seconds
+
+    class R:
+        def __init__(self, code, headers):
+            self.status_code, self.headers = code, headers
+
+    assert _wait_seconds(R(429, {"Retry-After": "90"}), 0) == 90
+    assert _wait_seconds(R(429, {}), 1) == 60
+    assert _wait_seconds(None, 0) == 2
+
+
+def test_update_archive_keeps_fetched_months_when_api_fails(tmp_path, monkeypatch):
+    import requests
+
+    import pipeline.build as b
+
+    calls = []
+
+    def fake_fetch(month):
+        calls.append(month)
+        if month == "2024-03":
+            raise requests.HTTPError("429 Too Many Requests")
+        idx = pd.date_range(f"{month}-01", periods=2, freq="h", tz="UTC")
+        return pd.DataFrame({"load": [1.0, 2.0]}, index=idx)
+
+    monkeypatch.setattr(b, "HOURLY_DIR", tmp_path)
+    monkeypatch.setattr(b, "START", "2024-01")
+    monkeypatch.setattr(b, "fetch_month", fake_fetch)
+    monkeypatch.setattr(b, "months_to_fetch", lambda existing, today: [pd.Period(m, "M") for m in ["2024-01", "2024-02", "2024-03", "2024-04"]])
+
+    assert b.update_archive(pd.Timestamp("2024-04-10", tz=TZ), pause=0) is False
+    assert sorted(p.stem for p in tmp_path.glob("*.csv")) == ["2024-01", "2024-02"]
+    assert calls[-1] == "2024-03"

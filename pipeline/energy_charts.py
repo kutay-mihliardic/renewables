@@ -25,16 +25,24 @@ SERIES = {
 BZN_SPLIT = pd.Timestamp("2018-10-01", tz=TZ)
 
 
-def _get(path, params, retries=4):
+def _wait_seconds(response, attempt):
+    """429'da sunucunun istediği kadar (Retry-After), yoksa giderek artan süre bekle."""
+    if response is not None and response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "")
+        return int(retry_after) if retry_after.isdigit() else 30 * 2 ** attempt
+    return 2 ** (attempt + 1)
+
+
+def _get(path, params, retries=5):
     for attempt in range(retries):
         try:
             r = requests.get(f"{API}/{path}", params=params, timeout=120)
             r.raise_for_status()
             return r.json()
-        except requests.RequestException:
+        except requests.RequestException as e:
             if attempt == retries - 1:
                 raise
-            time.sleep(2 ** (attempt + 1))
+            time.sleep(_wait_seconds(getattr(e, "response", None), attempt))
 
 
 def _find_series(production_types, prefix):
@@ -92,7 +100,12 @@ def fetch_month(month_start):
     try:
         price = to_hourly(parse_price(_get("price", {"bzn": bzn, **params})).to_frame())
         hourly = power.join(price, how="left")
-    except (requests.RequestException, KeyError):
+    except requests.HTTPError as e:
+        # Fiyatı olmayan dönemde boş bırak; istek sınırı (429) ise ayı hiç yazma, sonra tekrar denensin.
+        if e.response is not None and e.response.status_code == 429:
+            raise
+        hourly = power.assign(price=float("nan"))
+    except KeyError:
         hourly = power.assign(price=float("nan"))
 
     mask = (hourly.index >= start.tz_convert("UTC")) & (hourly.index < end.tz_convert("UTC"))
