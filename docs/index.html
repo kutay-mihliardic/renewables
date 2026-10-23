@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Almanya Duck Curve & Dunkelflaute</title>
+<meta name="description" content="Almanya elektrik sisteminde ördek eğrisi, negatif fiyatlar ve dunkelflaute olayları — günlük güncellenen interaktif dashboard.">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f5f3;
+  --surface-1: #fcfcfb;
+  --border: #e3e2de;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --grid: #ecebe7;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --band: rgba(235, 104, 52, 0.16);
+  --ramp: #86b6ef,#6da7ec,#5598e7,#3987e5,#2a78d6,#256abf,#1c5cab,#184f95,#104281,#0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211;
+    --surface-1: #1a1a19;
+    --border: #2e2e2c;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8d8c85;
+    --grid: #2a2a28;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --band: rgba(217, 89, 38, 0.24);
+    --ramp: #184f95,#1c5cab,#256abf,#2a78d6,#3987e5,#5598e7,#6da7ec,#86b6ef,#9ec5f4,#b7d3f6;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211;
+  --surface-1: #1a1a19;
+  --border: #2e2e2c;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8d8c85;
+  --grid: #2a2a28;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --band: rgba(217, 89, 38, 0.24);
+  --ramp: #184f95,#1c5cab,#256abf,#2a78d6,#3987e5,#5598e7,#6da7ec,#86b6ef,#9ec5f4,#b7d3f6;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 0 0 4px; }
+.sub, .note { color: var(--text-secondary); margin: 0; }
+.note { font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 20px 0; }
+.tile, .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.tile .label { color: var(--text-secondary); font-size: 0.85rem; }
+.tile .value { font-size: 1.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .ctx { color: var(--text-muted); font-size: 0.8rem; }
+.card { margin-top: 16px; }
+.controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 12px 0 4px; }
+.controls label { display: flex; gap: 8px; align-items: center; color: var(--text-secondary); font-size: 0.9rem; }
+select, input[type=range] { accent-color: var(--series-1); }
+select { background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+output { font-variant-numeric: tabular-nums; color: var(--text-primary); min-width: 3ch; display: inline-block; }
+.chart { width: 100%; height: 380px; }
+.chart.small { height: 220px; }
+.table-wrap { overflow-x: auto; margin-top: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 500; }
+#error { display: none; }
+footer { margin-top: 24px; font-size: 0.8rem; color: var(--text-muted); }
+a { color: var(--series-1); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Almanya: Duck Curve & Dunkelflaute</h1>
+  <p class="sub">Güneş öğlen net yükü çökertiyor, kışın rüzgârsız-karanlık günler sistemi zorluyor. <span id="updated"></span></p>
+
+  <div class="card" id="error"><p>Veri henüz yok. Önce <code>python -m pipeline.build</code> çalıştırılmalı (GitHub Actions bunu her gün yapar).</p></div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <h2>Ördek eğrisi: ortalama günlük net yük</h2>
+    <p class="sub">Net yük = tüketim − güneş − rüzgâr. Yıllar ilerledikçe öğle çukuru derinleşiyor, akşam rampası dikleşiyor.</p>
+    <div class="controls">
+      <label>Ay <select id="month"></select></label>
+    </div>
+    <div class="chart" id="duck"></div>
+  </section>
+
+  <section class="card">
+    <h2>Negatif fiyatlı saatler</h2>
+    <p class="sub">Gün öncesi piyasasında (DE-LU) fiyatın sıfırın altına düştüğü saat sayısı, yıl bazında.</p>
+    <div class="chart small" id="neg"></div>
+  </section>
+
+  <section class="card">
+    <h2>Dunkelflaute: rüzgâr + güneşin zayıf kaldığı dönemler</h2>
+    <p class="sub">Günlük rüzgâr+güneş üretiminin, son 365 günün ortalamasına oranı. Eşiğin altında art arda kalan günler olay sayılır.</p>
+    <div class="controls">
+      <label>Eşik <input type="range" id="thr" min="10" max="60" step="5" value="30"> <output id="thrOut"></output></label>
+      <label>En az <input type="range" id="minDays" min="1" max="7" step="1" value="2"> <output id="minOut"></output> gün</label>
+      <label>Dönem <select id="season"></select></label>
+    </div>
+    <div class="chart" id="dunkel"></div>
+    <div class="chart small" id="price"></div>
+    <h2 style="margin-top:16px">En uzun olaylar (tüm dönem)</h2>
+    <div class="table-wrap"><table id="events"></table></div>
+  </section>
+
+  <footer>Kaynak: <a href="https://energy-charts.info">Energy-Charts.info</a> (Fraunhofer ISE), CC BY 4.0. Saatler Almanya yerel saatidir.</footer>
+</main>
+
+<script>
+const MONTHS = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+const $ = (id) => document.getElementById(id);
+const fmt = (v, d = 0) => v == null ? "–" : v.toLocaleString("tr-TR", { maximumFractionDigits: d, minimumFractionDigits: d });
+let DATA;
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function baseLayout(extra = {}) {
+  return {
+    paper_bgcolor: css("--surface-1"), plot_bgcolor: css("--surface-1"),
+    font: { family: "system-ui, sans-serif", size: 12, color: css("--text-secondary") },
+    margin: { l: 56, r: 16, t: 12, b: 40 },
+    hoverlabel: { bgcolor: css("--surface-1"), bordercolor: css("--border"), font: { color: css("--text-primary") } },
+    xaxis: { gridcolor: css("--grid"), zeroline: false, linecolor: css("--border") },
+    yaxis: { gridcolor: css("--grid"), zeroline: false, linecolor: css("--border") },
+    ...extra,
+  };
+}
+const CONFIG = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d"] };
+
+// ---------- Ördek eğrisi ----------
+function drawDuck() {
+  const month = $("month").value;
+  const years = Object.keys(DATA.profiles).filter((y) => DATA.profiles[y][month]).sort();
+  const ramp = css("--ramp").split(",").map((s) => s.trim());
+  const hours = [...Array(24).keys()];
+  const traces = years.map((y, i) => {
+    const last = i === years.length - 1;
+    const color = ramp[Math.round((i / Math.max(years.length - 1, 1)) * (ramp.length - 1))];
+    return {
+      x: hours, y: DATA.profiles[y][month].net, name: y, mode: "lines",
+      line: { color, width: last ? 3 : 2, shape: "spline" },
+      hovertemplate: `${y}: %{y:.1f} GW<extra></extra>`,
+    };
+  });
+  const latest = years[years.length - 1];
+  const annotations = latest ? [{
+    x: 13, y: DATA.profiles[latest][month].net[13], text: latest, showarrow: false,
+    yshift: -14, font: { color: css("--text-primary"), size: 12 },
+  }] : [];
+  Plotly.react("duck", traces, baseLayout({
+    hovermode: "x unified", annotations,
+    xaxis: { ...baseLayout().xaxis, title: "Saat", dtick: 3, range: [0, 23] },
+    yaxis: { ...baseLayout().yaxis, title: "Net yük (GW)" },
+    legend: { orientation: "h", y: -0.2 },
+  }), CONFIG);
+}
+
+// ---------- Negatif fiyat ----------
+function negByYear() {
+  const d = DATA.daily, out = {};
+  d.date.forEach((dt, i) => { const y = dt.slice(0, 4); out[y] = (out[y] || 0) + d.neg_hours[i]; });
+  const hasPrice = {};
+  d.date.forEach((dt, i) => { if (d.price_avg[i] != null) hasPrice[dt.slice(0, 4)] = true; });
+  return Object.keys(out).filter((y) => hasPrice[y]).sort().map((y) => [y, out[y]]);
+}
+
+function drawNeg() {
+  const rows = negByYear();
+  Plotly.react("neg", [{
+    type: "bar", x: rows.map((r) => r[0]), y: rows.map((r) => r[1]),
+    marker: { color: css("--series-1") },
+    hovertemplate: "%{x}: %{y} saat<extra></extra>",
+  }], baseLayout({ bargap: 0.35, yaxis: { ...baseLayout().yaxis, title: "Saat" } }), CONFIG);
+}
+
+// ---------- Dunkelflaute ----------
+function findEvents(thr, minDays) {
+  const d = DATA.daily, events = [];
+  let cur = null;
+  const close = () => { if (cur && cur.idx.length >= minDays) events.push(cur); cur = null; };
+  d.date.forEach((dt, i) => {
+    const r = d.vre_ratio[i];
+    const prevDay = i > 0 ? new Date(d.date[i - 1]) : null;
+    const gap = prevDay && (new Date(dt) - prevDay) > 1.5 * 864e5;
+    if (gap) close();
+    if (r != null && r < thr) { (cur ||= { idx: [] }).idx.push(i); } else close();
+  });
+  close();
+  return events.map((e) => {
+    const pick = (k) => e.idx.map((i) => d[k][i]).filter((v) => v != null);
+    const mean = (a) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+    return {
+      start: d.date[e.idx[0]], end: d.date[e.idx[e.idx.length - 1]], days: e.idx.length,
+      ratio: mean(pick("vre_ratio")), price: mean(pick("price_avg")),
+      priceMax: pick("price_max").length ? Math.max(...pick("price_max")) : null,
+    };
+  });
+}
+
+function seasonRange(key) {
+  if (key === "all") return [DATA.daily.date[0], DATA.daily.date[DATA.daily.date.length - 1]];
+  const y = +key; // "y" = y-1 Ekim .. y Mart arası kış
+  return [`${y - 1}-10-01`, `${y}-03-31`];
+}
+
+function drawDunkel() {
+  const thr = +$("thr").value / 100, minDays = +$("minDays").value;
+  $("thrOut").textContent = `%${$("thr").value}`;
+  $("minOut").textContent = $("minDays").value;
+  const d = DATA.daily, range = seasonRange($("season").value);
+  const events = findEvents(thr, minDays);
+  const band = css("--band");
+  const shapes = events.filter((e) => e.end >= range[0] && e.start <= range[1]).map((e) => ({
+    type: "rect", xref: "x", yref: "paper", x0: e.start, x1: addDay(e.end), y0: 0, y1: 1,
+    fillcolor: band, line: { width: 0 }, layer: "below",
+  }));
+  shapes.push({
+    type: "line", xref: "paper", x0: 0, x1: 1, y0: thr * 100, y1: thr * 100,
+    line: { color: css("--text-muted"), width: 1, dash: "dash" },
+  });
+  Plotly.react("dunkel", [{
+    x: d.date, y: d.vre_ratio.map((v) => v == null ? null : v * 100), mode: "lines", name: "Rüzgâr+güneş / normal",
+    line: { color: css("--series-1"), width: 2 },
+    hovertemplate: "%{x|%d %b %Y}: normalin %%{y:.0f}'i<extra></extra>",
+  }], baseLayout({
+    shapes,
+    showlegend: false, hovermode: "x",
+    xaxis: { ...baseLayout().xaxis, range, type: "date" },
+    yaxis: { ...baseLayout().yaxis, title: "Normale oran (%)", rangemode: "tozero" },
+  }), CONFIG);
+
+  Plotly.react("price", [{
+    x: d.date, y: d.price_avg, mode: "lines", name: "Günlük ort. fiyat",
+    line: { color: css("--text-secondary"), width: 1.5 },
+    hovertemplate: "%{x|%d %b %Y}: %{y:.0f} €/MWh<extra></extra>",
+  }], baseLayout({
+    shapes: shapes.filter((s) => s.type === "rect"), showlegend: false, hovermode: "x",
+    margin: { l: 56, r: 16, t: 8, b: 32 },
+    xaxis: { ...baseLayout().xaxis, range, type: "date" },
+    yaxis: { ...baseLayout().yaxis, title: "€/MWh (gün ort.)" },
+  }), CONFIG);
+
+  const top = [...events].sort((a, b) => b.days - a.days || a.ratio - b.ratio).slice(0, 10);
+  $("events").innerHTML = `<thead><tr><th>Başlangıç</th><th>Bitiş</th><th>Gün</th><th>Ort. oran</th><th>Ort. fiyat (€/MWh)</th><th>Maks. saatlik fiyat</th></tr></thead><tbody>` +
+    (top.length ? top.map((e) => `<tr><td>${e.start}</td><td>${e.end}</td><td>${e.days}</td><td>%${fmt(e.ratio * 100)}</td><td>${fmt(e.price)}</td><td>${fmt(e.priceMax)}</td></tr>`).join("")
+      : `<tr><td colspan="6">Bu ayarlarla olay yok.</td></tr>`) + "</tbody>";
+
+  drawTiles(events);
+}
+
+function addDay(s) { const t = new Date(s); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); }
+
+// ---------- Özet kutuları ----------
+function drawTiles(events) {
+  const neg = negByYear();
+  const lastFull = neg.filter((r) => r[0] < DATA.daily.date[DATA.daily.date.length - 1].slice(0, 4)).pop() || neg[neg.length - 1];
+  const years = Object.keys(DATA.profiles).sort();
+  const month = $("month").value;
+  const withMonth = years.filter((y) => DATA.profiles[y][month]);
+  const first = withMonth[0], last = withMonth[withMonth.length - 1];
+  const minNet = (y) => Math.min(...DATA.profiles[y][month].net.filter((v) => v != null));
+  const longest = events.reduce((a, e) => (!a || e.days > a.days ? e : a), null);
+  const tiles = [
+    { label: `Negatif fiyatlı saat (${lastFull?.[0] ?? "–"})`, value: fmt(lastFull?.[1]), ctx: "gün öncesi, DE-LU" },
+    { label: `Öğle net yük dibi, ${MONTHS[month - 1]} ${last ?? ""}`, value: last ? `${fmt(minNet(last), 1)} GW` : "–", ctx: first ? `${first}: ${fmt(minNet(first), 1)} GW` : "" },
+    { label: "Dunkelflaute olayı (tüm dönem)", value: fmt(events.length), ctx: longest ? `en uzunu ${longest.days} gün, ${longest.start}` : "seçili eşikle" },
+  ];
+  $("tiles").innerHTML = tiles.map((t) => `<div class="tile"><div class="label">${t.label}</div><div class="value">${t.value}</div><div class="ctx">${t.ctx}</div></div>`).join("");
+}
+
+function drawAll() { drawDuck(); drawNeg(); drawDunkel(); }
+
+async function init() {
+  try {
+    const r = await fetch("data.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error(r.status);
+    DATA = await r.json();
+  } catch (e) {
+    $("error").style.display = "block";
+    return;
+  }
+  $("updated").textContent = `Son veri: ${DATA.last_data} (Berlin).`;
+  $("month").innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}"${i === 4 ? " selected" : ""}>${m}</option>`).join("");
+  const lastYear = +DATA.daily.date[DATA.daily.date.length - 1].slice(0, 4);
+  const firstYear = +DATA.daily.date[0].slice(0, 4) + 1;
+  const lastMonth = +DATA.daily.date[DATA.daily.date.length - 1].slice(5, 7);
+  const seasons = [];
+  // Ekim'den itibaren devam eden kış da listelenir
+  for (let y = lastMonth >= 10 ? lastYear + 1 : lastYear; y >= firstYear; y--) {
+    seasons.push(`<option value="${y}">Kış ${y - 1}/${String(y).slice(2)}</option>`);
+  }
+  $("season").innerHTML = `<option value="all">Tüm dönem</option>` + seasons.join("");
+  // Varsayılan: son tamamlanmış kış
+  $("season").value = String(lastMonth >= 4 ? lastYear : lastYear - 1);
+
+  $("month").addEventListener("change", () => { drawDuck(); drawDunkel(); });
+  ["thr", "minDays", "season"].forEach((id) => $(id).addEventListener("input", drawDunkel));
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+  drawAll();
+}
+init();
+</script>
+</body>
+</html>
